@@ -1,4 +1,3 @@
 export default Object.freeze({
-  SERVER_URL: 'https://chess.dovigo.org'
-})
-
+  SERVER_URL: 'https://chess.dovigo.org',
+});
