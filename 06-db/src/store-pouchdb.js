@@ -1,7 +1,12 @@
 import PouchDB from 'pouchdb'
 
 const localDB = new PouchDB('mmt-ss2017')
-const remoteDB = new PouchDB('https://couchdb.5k20.com/mmt-ss2017')
+const remoteDB = new PouchDB('https://couchdb.5k20.com/mmt-ss2017', {
+    auth: {
+        username: 'laichbauer',
+        password: 'test'
+    }
+})
 
 export default class Store {
     /**
@@ -9,10 +14,6 @@ export default class Store {
      * @param {function()} [callback] Called when the Store is ready
      */
     constructor(name, callback) {
-        /**
-         * @type {ItemList}
-         */
-        let liveTodos
 
         /**
          * Read the local ItemList from localStorage.
@@ -20,6 +21,22 @@ export default class Store {
          * @returns {ItemList} Current array of todos
          */
         this.getStore = () => {
+            const store = []
+            return new Promise((resolve) => {
+                remoteDB.allDocs({ include_docs: true })
+                    .then((result) => {
+                        result.rows.map((row) => {
+                            return store.push({
+                                id: row.doc._id,
+                                completed: row.doc.completed,
+                                title: row.doc.title,
+                                _rev: row.doc._rev
+                            })
+                        })
+
+                        resolve(store)
+                    })
+            })
         }
 
         /**
@@ -27,7 +44,8 @@ export default class Store {
          *
          * @param {ItemList} todos Array of todos to write
          */
-        this.setStore = (todos) => {
+        this.setStore = (todo) => {
+            remoteDB.put(todo)
         }
 
         if (callback) {
@@ -43,11 +61,25 @@ export default class Store {
      *
      * @example
      * db.find({completed: true}, data => {
-	 *	 // data shall contain items whose completed properties are true
-	 * })
+     *	 // data shall contain items whose completed properties are true
+     * })
      */
     find(query, callback) {
+        let filteredTodos
+        this.getStore().then((todos) => {
+            let k
+            filteredTodos = todos.filter((todo) => {
+                for (k in query) {
+                    if (query[k] !== todo[k]) {
+                        return false
+                    }
+                }
 
+                return true
+            })
+
+            callback(filteredTodos)
+        })
     }
 
     /**
@@ -57,7 +89,24 @@ export default class Store {
      * @param {function()} [callback] Called when partialRecord is applied
      */
     update(update, callback) {
+        const id = update.id
 
+        this.getStore().then((todos) => {
+            todos.forEach((todo) => {
+                if ((id).toString() === (todo.id).toString()) {
+                    return remoteDB.put({
+                        _id: (todo.id).toString(),
+                        completed: update.completed,
+                        title: todo.title,
+                        _rev: todo._rev
+                    })
+                }
+            })
+
+            if (callback) {
+                callback()
+            }
+        })
     }
 
     /**
@@ -67,7 +116,14 @@ export default class Store {
      * @param {function()} [callback] Called when item is inserted
      */
     insert(item, callback) {
-
+        remoteDB.put({
+            _id: (item.id).toString(),
+            title: item.title,
+            completed: item.completed,
+        })
+        if (callback) {
+            callback()
+        }
     }
 
     /**
@@ -77,6 +133,37 @@ export default class Store {
      * @param {function(ItemList)|function()} [callback] Called when records matching query are removed
      */
     remove(query, callback) {
+        let k
+
+        this.getStore().then((todos) => {
+            const filteredTodosToRemove = todos.filter((todo) => {
+                for (k in query) {
+                    if ((query[k]).toString() !== (todo[k]).toString()) {
+                        return false
+                    }
+                }
+                return true
+            })
+            const newTodos = todos.filter((todo) => {
+                for (k in query) {
+                    if ((query[k]).toString() !== (todo[k]).toString()) {
+                        return true
+                    }
+                }
+                return false
+            })
+
+            filteredTodosToRemove.forEach((todo) => {
+                remoteDB.remove({
+                    _id: (todo.id).toString(),
+                    _rev: todo._rev
+                })
+            })
+
+            if (callback) {
+                callback(newTodos)
+            }
+        })
 
     }
 
@@ -86,6 +173,16 @@ export default class Store {
      * @param {function(number, number, number)} callback Called when the count is completed
      */
     count(callback) {
+        this.getStore().then((todos) => {
+            const total = todos.length
 
+            let completed = 0
+
+            todos.forEach((todo) => {
+                completed += todo.completed
+            })
+
+            callback(total, total - completed, completed)
+        })
     }
 }
